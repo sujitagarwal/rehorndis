@@ -80,7 +80,8 @@ What it changes on your system while connected:
   not been measured yet.
 - Asks for admin approval each time you turn it on, because creating a network interface and
   changing routes needs root.
-- So far tested only with one Samsung phone on macOS 26 (Apple Silicon). Other Android phones that
+- So far tested on a Samsung phone, a Samsung Galaxy Tab S6 Lite tablet and a vivo T2x 5G, all on
+  macOS 26 (Apple Silicon). Other Android phones that
   use standard RNDIS (interface class E0/01/03) should work but are untested.
 
 ## Tested devices
@@ -88,6 +89,8 @@ What it changes on your system while connected:
 | Phone | macOS | Result |
 |---|---|---|
 | Samsung (04e8:6863, `SAMSUNG_Android`) | 26.6, Apple Silicon | Works |
+| Samsung Galaxy Tab S6 Lite (tablet) | macOS 26, Apple Silicon | Works |
+| vivo T2x 5G | macOS 26, Apple Silicon | Works |
 
 Using another phone? Please [open a device report](../../issues/new?template=device-report.yml)
 whether it works or not, so this table can grow.
