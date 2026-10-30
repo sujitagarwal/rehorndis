@@ -83,3 +83,21 @@ class NetConfig:
             run("scutil", stdin=f"remove {self.SVC}\n")
             run("dscacheutil", "-flushcache")
         self._routes, self._dns, self._svc = [], False, False
+
+
+STALE_KEYS = (NetConfig.SVC, NetConfig.SVC_IPV4, NetConfig.SVC_SETUP)
+
+
+def stale_keys():
+    """Our scutil keys that currently exist."""
+    out = []
+    for k in STALE_KEYS:
+        r = subprocess.run(["scutil"], input=f"show {k}\n", capture_output=True, text=True)
+        if "No such key" not in r.stdout + r.stderr:
+            out.append(k)
+    return out
+
+
+def cleanup_stale():
+    """Remove our scutil keys left by a crashed run (routes die with the utun interface)."""
+    run("scutil", stdin="".join(f"remove {k}\n" for k in STALE_KEYS))

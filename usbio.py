@@ -7,11 +7,9 @@ import usb.util
 
 log = logging.getLogger("usbio")
 
-# Samsung default; override with --vid/--pid.
-VID, PID = 0x04E8, 0x6863
-
 # RNDIS control interface: class E0 / sub 1 / proto 3. Data: CDC Data 0x0A.
 CLS_WIRELESS, CLS_CDC_DATA = 0xE0, 0x0A
+RNDIS_TRIPLE = (CLS_WIRELESS, 0x01, 0x03)
 
 # CDC class-specific control requests
 SEND_ENCAPSULATED_COMMAND = 0x00
@@ -51,10 +49,32 @@ def dump_descriptors(dev):
                 print(f"      class-specific descriptors: {extra.hex()}")
 
 
+def is_rndis(dev):
+    """True if any interface of the device is RNDIS (class E0/01/03). Needs no root, no open()."""
+    try:
+        for cfg in dev:
+            for intf in cfg:
+                if (intf.bInterfaceClass, intf.bInterfaceSubClass, intf.bInterfaceProtocol) == RNDIS_TRIPLE:
+                    return True
+    except (usb.core.USBError, ValueError, NotImplementedError):
+        pass
+    return False
+
+
+def find_rndis_device(vid=None, pid=None):
+    """First RNDIS device, or the one matching an explicit vid/pid."""
+    if vid is not None and pid is not None:
+        return usb.core.find(idVendor=vid, idProduct=pid)
+    for dev in usb.core.find(find_all=True) or []:
+        if is_rndis(dev):
+            return dev
+    return None
+
+
 class UsbLink:
     """Claims the RNDIS control+data interfaces and exposes raw transfers."""
 
-    def __init__(self, vid=VID, pid=PID):
+    def __init__(self, vid=None, pid=None):
         self.vid, self.pid = vid, pid
         self.dev = None
         self.ctrl_if = self.data_if = None
@@ -62,9 +82,9 @@ class UsbLink:
         self._claimed = []
 
     def open(self):
-        self.dev = usb.core.find(idVendor=self.vid, idProduct=self.pid)
+        self.dev = find_rndis_device(self.vid, self.pid)
         if self.dev is None:
-            sys.exit(f"device {self.vid:04x}:{self.pid:04x} not found (phone plugged in, USB tethering on?)")
+            sys.exit("no RNDIS device found (phone plugged in, USB tethering on?)")
         dump_descriptors(self.dev)
         try:
             cfg = self.dev.get_active_configuration()

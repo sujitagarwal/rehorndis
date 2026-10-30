@@ -15,9 +15,28 @@ not affiliated with or endorsed by the HoRNDIS project.
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/sujitagarwal/rehorndis/main/install.sh)"
 ```
 
-Installs libusb (via Homebrew), a private Python venv in `~/.rehorndis`, and a `rehorndis` command.
-Then: `rehorndis` (asks for sudo itself). Also `rehorndis update` and `rehorndis uninstall`.
-From a local checkout, `./install.sh` installs that checkout instead.
+Installs libusb (via Homebrew), a private Python venv in `~/.rehorndis`, the `rehorndis` command,
+and a menu bar app that launches at login.
+
+## Use
+
+1. Plug in the phone and enable **USB tethering**.
+2. Click the **USB** item in the menu bar and choose **Start**. macOS asks for admin approval
+   (Touch ID or password) once per start. Stop restores routes and DNS.
+
+| Icon | Meaning |
+|---|---|
+| ⚪ USB | idle (no phone, or phone ready) |
+| 🟡 USB | connecting / stopping |
+| 🟢 USB | connected |
+| 🔴 USB | error (the menu says why) |
+
+Menu options: **Troubleshoot…** (stops leftovers, removes stale network entries, flushes DNS, resets
+the phone's USB connection, then shows a report), **Launch at login**, **Connect when phone is
+plugged in**.
+
+Terminal: `rehorndis` (open the menu bar app), `rehorndis run [-v]` (headless, asks for sudo),
+`rehorndis update`, `rehorndis uninstall`.
 
 ## Install (manual)
 
@@ -27,13 +46,13 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-## Run
+## Run from a checkout
 
-1. Plug in the phone, enable **USB tethering** (Settings > Network > Hotspot & tethering).
-2. `sudo .venv/bin/python main.py` (add `-v` for debug logs). Ctrl+C restores routes and DNS.
+- Menu bar app: `.venv/bin/python app.py`
+- Headless: `sudo .venv/bin/python main.py` (`-v` for debug logs). Ctrl+C restores routes and DNS.
 
-Flags: `--verbose`, `--no-default-route` (bring up the link only), `--dump-packets`, `--no-menubar` (the menu bar status item with IP/gateway/DNS and Quit is on by default; needs `rumps`),
-`--vid/--pid` (hex, default `04e8` / `6863`), `--stage N` (stop early, see below).
+Flags: `--verbose`, `--no-default-route` (bring up the link only), `--dump-packets`, `--repair`,
+`--vid/--pid` (hex; default: auto-detect any RNDIS phone), `--stage N` (stop early, see below).
 
 ## Bring-up stages
 
@@ -54,7 +73,9 @@ Then test: `ping 8.8.8.8` and `curl https://example.com`.
 - `dhcp.py` DHCP client over raw frames
 - `arp.py` ARP responder + resolver
 - `tun.py` utun device, ifconfig/route/scutil config and cleanup
-- `main.py` CLI and the L3<->L2 bridge
+- `main.py` tunnel engine: CLI, the L3<->L2 bridge, worker mode, `--repair`
+- `control.py` unix-socket channel between the root worker and the app
+- `app.py` menu bar app (runs as you; only the worker is elevated)
 
 ## Notes
 

@@ -94,7 +94,7 @@ class DhcpClient:
 
     def _wait(self, want, timeout):
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        while time.monotonic() < deadline and not self.rndis.stop.is_set():
             for f in self.rndis.recv_frames(300):
                 m = self.handle(f)
                 if m and m["type"] == want:
@@ -105,6 +105,8 @@ class DhcpClient:
 
     def acquire(self, attempts=5):
         for n in range(attempts):
+            if self.rndis.stop.is_set():
+                raise InterruptedError("stopped")
             self.xid = random.getrandbits(32)
             log.info("DHCP DISCOVER (try %d)", n + 1)
             self._send(DISCOVER)

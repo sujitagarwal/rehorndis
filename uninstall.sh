@@ -10,6 +10,9 @@ if pgrep -f "$PREFIX/src/main.py" >/dev/null 2>&1; then
   exit 1
 fi
 
+AGENT="$HOME/Library/LaunchAgents/com.sujitagarwal.rehorndis.plist"
+launchctl bootout "gui/$(id -u)" "$AGENT" >/dev/null 2>&1 || true
+rm -f "$AGENT"
 LINK="$BINDIR/rehorndis"
 if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$PREFIX/rehorndis" ]; then
   if [ -w "$BINDIR" ]; then rm -f "$LINK"; else sudo rm -f "$LINK"; fi

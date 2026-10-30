@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""RNDIS USB tethering daemon for macOS. Run: sudo python3 main.py"""
+"""ReHoRNDIS tunnel daemon (needs root). The menu bar UI is app.py; this is the engine."""
 import argparse
 import logging
+import os
 import select
 import signal
 import socket
 import struct
+import sys
 import threading
 import time
 
 import usb.core
 
 import arp
+import control
 import dhcp
 import rndis
 import tun
@@ -50,8 +53,13 @@ class Bridge:
         self.arp.ip = self.ip
         self.arp.learn(lease.server_id, lease.server_mac)
         self._renew_after = lease.renew_at
+        self.rx_bytes = self.tx_bytes = 0
+
+    def stats(self):
+        return {"rx_bytes": self.rx_bytes, "tx_bytes": self.tx_bytes}
 
     def _send(self, frame):
+        self.tx_bytes += len(frame)
         if self.args.dump_packets:
             print("TX", describe(frame), "|", hexdump(frame))
         self.rn.send_frame(frame)
@@ -66,6 +74,7 @@ class Bridge:
                 self.stop.set()
                 return
             for f in frames:
+                self.rx_bytes += len(f)
                 if self.args.dump_packets:
                     print("RX", describe(f), "|", hexdump(f))
                 self._on_frame(f)
@@ -117,29 +126,6 @@ class Bridge:
             self._send(mac + self.mac + b"\x08\x00" + pkt)
 
 
-def run_menubar(ifname, lease, stop):
-    """Show a menu bar item until `stop` is set or the user picks Quit. Blocks on the main thread."""
-    import AppKit
-    import rumps
-    AppKit.NSApplication.sharedApplication().setActivationPolicy_(
-        AppKit.NSApplicationActivationPolicyAccessory)  # no Dock icon
-    def stop_loop():
-        # NSApp.terminate would exit() the process and skip our cleanup; stop_ makes app.run() return.
-        app = AppKit.NSApp()
-        app.stop_(None)
-        app.postEvent_atStart_(AppKit.NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
-            AppKit.NSEventTypeApplicationDefined, (0, 0), 0, 0, 0, None, 0, 0, 0), True)  # wake the loop
-    def quit_(_):
-        stop.set()
-        stop_loop()
-    app = rumps.App("ReHoRNDIS", title="⇄ USB", quit_button=None)
-    app.menu = [f"{ifname}: {lease.ip}", f"Gateway: {lease.router}", f"DNS: {', '.join(lease.dns)}",
-                None, rumps.MenuItem("Quit", callback=quit_)]
-    # also lets Python run so Ctrl+C / SIGTERM handlers fire inside the Cocoa loop
-    rumps.Timer(lambda _: stop.is_set() and stop_loop(), 1).start()
-    app.run()
-
-
 def stage_log_frames(rn, seconds=20):
     print(f"\nLogging raw frames for {seconds}s (replug/toggle tethering to provoke traffic)...")
     end = time.monotonic() + seconds
@@ -148,26 +134,20 @@ def stage_log_frames(rn, seconds=20):
             print("RX", describe(f), "|", hexdump(f, 64))
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--verbose", "-v", action="store_true")
-    ap.add_argument("--no-default-route", action="store_true", help="don't route 0/0 via the phone")
-    ap.add_argument("--dump-packets", action="store_true")
-    ap.add_argument("--no-menubar", action="store_true", help="don't show the menu bar status item")
-    ap.add_argument("--vid", type=lambda s: int(s, 16), default=usbio.VID)
-    ap.add_argument("--pid", type=lambda s: int(s, 16), default=usbio.PID)
-    ap.add_argument("--stage", type=int, default=99,
-                    help="stop after step: 1=claim 2=init+MAC 3=raw frames 4=DHCP (default: run all)")
-    args = ap.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(name)s: %(message)s")
+def tunnel(args, stop, ctl=None, ready_flag=None):
+    """Bring the link up and bridge until `stop` is set. Always cleans up routes/DNS/USB."""
+    def status(**kw):
+        if ctl:
+            ctl.update(**kw)
 
     link = usbio.UsbLink(args.vid, args.pid).open()
     rn = rndis.Rndis(link)
+    rn.stop = stop
     tn = net = None
     try:
         if args.stage <= 1:
             return
+        status(detail="RNDIS init")
         rn.initialize()
         mac = rn.query_mac()
         if args.stage <= 2:
@@ -177,6 +157,7 @@ def main():
         if args.stage == 3:
             return stage_log_frames(rn)
 
+        status(detail="DHCP")
         dh = dhcp.DhcpClient(rn, mac)
         lease = dh.acquire()
         print(f"\nDHCP lease: ip={lease.ip} mask={lease.mask} gw={lease.router} dns={lease.dns} "
@@ -184,40 +165,126 @@ def main():
         if args.stage <= 4:
             return
 
+        tun.cleanup_stale()
         tn = tun.Utun()
         br = Bridge(rn, tn, mac, lease, dh, args)
-        rxt = threading.Thread(target=br.rx_loop, daemon=True)
-        rxt.start()
+        threading.Thread(target=br.rx_loop, daemon=True).start()
         net = tun.NetConfig(tn.name, lease, not args.no_default_route)
         net.apply()
         gw_mac = br.arp.resolve(br.gw, 5)
-        print(f"{tn.name} up: {lease.ip} via {socket.inet_ntoa(br.gw)} ({gw_mac.hex(':') if gw_mac else 'ARP unresolved!'})")
-        signal.signal(signal.SIGINT, lambda *_: rn.stop.set())
-        signal.signal(signal.SIGTERM, lambda *_: rn.stop.set())
+        print(f"{tn.name} up: {lease.ip} via {socket.inet_ntoa(br.gw)} "
+              f"({gw_mac.hex(':') if gw_mac else 'ARP unresolved!'})")
+        if ctl:
+            ctl.stats_fn = br.stats
+            status(state="connected", iface=tn.name, ip=lease.ip, gateway=socket.inet_ntoa(br.gw),
+                   dns=lease.dns, detail="")
+        if ready_flag is not None:
+            ready_flag["bridge"] = True
         print("Running. Ctrl+C to stop.")
-        try:
-            if args.no_menubar:
-                raise ImportError
-            import rumps  # noqa: F401
-        except ImportError:
-            args.no_menubar = True
-        if not args.no_menubar:
-            worker = threading.Thread(target=br.tx_loop, daemon=True)
-            worker.start()
-            run_menubar(tn.name, lease, rn.stop)
-            rn.stop.set()
-            worker.join(3)
-        else:
-            br.tx_loop()
+        br.tx_loop()
     finally:
         print("\nCleaning up...")
-        rn.stop.set()
+        stop.set()
+        status(state="stopping")
         if net:
             net.restore()
         rn.close()
         if tn:
             tn.close()
         link.close()
+
+
+def worker(args, stop):
+    """Headless mode driven by app.py: report state over the control socket, exit on 'stop'/unplug."""
+    if control.request(args.control_uid, "status"):
+        sys.exit("a worker is already running")
+    ctl = control.ControlServer(args.control_uid, stop)
+    ctl.start()
+    try:
+        tunnel(args, stop, ctl)
+    except (Exception, SystemExit) as e:  # keep the socket up briefly so the UI can show why
+        log.error("worker failed: %s", e)
+        if not stop.is_set():
+            ctl.update(state="error", message=str(e) or e.__class__.__name__)
+            stop.wait(8)
+    finally:
+        ctl.close()
+
+
+def repair():
+    """Undo whatever a previous run left behind. Prints a human-readable report. Needs root."""
+    import glob
+    import subprocess
+    if os.geteuid() != 0:
+        print("Not running as root: cannot fix everything.")
+    me = str(os.getpid())
+    pids = [p for p in subprocess.run(["pgrep", "-f", "main.py --worker"], capture_output=True,
+                                      text=True).stdout.split() if p != me]
+    if pids:
+        subprocess.run(["kill", "-TERM", *pids])
+        for _ in range(8):  # let the worker restore routes/DNS itself
+            time.sleep(0.5)
+            pids = [p for p in pids if subprocess.run(["kill", "-0", p], capture_output=True).returncode == 0]
+            if not pids:
+                break
+        if pids:
+            subprocess.run(["kill", "-KILL", *pids])
+        print("Stopped a leftover ReHoRNDIS worker.")
+    socks = glob.glob(os.path.join(os.environ.get("REHORNDIS_SOCK_DIR", "/var/run"), "rehorndis-*.sock"))
+    for sp in socks:
+        try:
+            os.unlink(sp)
+        except OSError as e:
+            print(f"Could not remove {sp}: {e}")
+    if socks:
+        print(f"Removed {len(socks)} stale control socket(s).")
+    keys = tun.stale_keys()
+    if keys:
+        tun.cleanup_stale()
+        left = tun.stale_keys()
+        print(f"Removed {len(keys) - len(left)} stale network entr{'y' if len(keys) == 1 else 'ies'}."
+              + (f" Could not remove: {left}" if left else ""))
+    tun.run("dscacheutil", "-flushcache")
+    tun.run("killall", "-HUP", "mDNSResponder")
+    print("Flushed DNS cache.")
+    if not (pids or socks or keys):
+        print("Nothing was left over from a previous run.")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--verbose", "-v", action="store_true")
+    ap.add_argument("--no-default-route", action="store_true", help="don't route 0/0 via the phone")
+    ap.add_argument("--dump-packets", action="store_true")
+    ap.add_argument("--vid", type=lambda s: int(s, 16), default=None, help="hex; default: auto-detect RNDIS")
+    ap.add_argument("--pid", type=lambda s: int(s, 16), default=None)
+    ap.add_argument("--stage", type=int, default=99,
+                    help="stop after step: 1=claim 2=init+MAC 3=raw frames 4=DHCP (default: run all)")
+    ap.add_argument("--repair", action="store_true", help="clean up leftovers of a previous run, then exit")
+    ap.add_argument("--worker", action="store_true", help="used by the menu bar app")
+    ap.add_argument("--control-uid", type=int, help="user allowed to control the worker (with --worker)")
+    args = ap.parse_args()
+    if args.worker and args.control_uid is None:
+        ap.error("--worker needs --control-uid")
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(asctime)s %(name)s: %(message)s")
+    if args.repair:
+        return repair()
+
+    stop = threading.Event()
+    state = {"bridge": False}
+
+    def on_signal(*_):
+        stop.set()
+        if not state["bridge"]:
+            raise KeyboardInterrupt  # still setting up: don't wait for blocking steps
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGTERM, on_signal)
+
+    try:
+        worker(args, stop) if args.worker else tunnel(args, stop, ready_flag=state)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
