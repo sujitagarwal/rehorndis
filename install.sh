@@ -38,7 +38,7 @@ PY="$(command -v python3 || true)"
 SRC="$PREFIX/src"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 mkdir -p "$PREFIX"
-rm -rf "$SRC.new"; mkdir -p "$SRC.new"
+rm -rf "$SRC.new" 2>/dev/null || sudo rm -rf "$SRC.new"; mkdir -p "$SRC.new"
 if [ -n "$HERE" ] && [ "$HERE" != "$SRC" ] && [ -f "$HERE/main.py" ] && [ -f "$HERE/rndis.py" ]; then
   say "Installing from local checkout $HERE"
   cp "$HERE"/*.py "$HERE/requirements.txt" "$HERE/uninstall.sh" "$HERE/install.sh" "$SRC.new/"
@@ -48,7 +48,9 @@ else
   curl -fsSL "$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$SRC.new" --strip-components=1
   echo "$REPO" > "$PREFIX/repo"; echo "$BRANCH" > "$PREFIX/branch"
 fi
-rm -rf "$SRC"; mv "$SRC.new" "$SRC"
+# root-run versions left root-owned __pycache__ behind; fall back to sudo to remove them
+rm -rf "$SRC" 2>/dev/null || sudo rm -rf "$SRC"
+mv "$SRC.new" "$SRC"
 
 # --- python env ---
 say "Setting up Python environment"
@@ -78,11 +80,11 @@ case "\${1:-}" in
   update)    exec /bin/bash "\$PREFIX/src/install.sh" ;;
   --version) echo "rehorndis (installed at \$PREFIX)"; exit 0 ;;
   -h|--help|help) usage; exit 0 ;;
-  app)       exec env DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" REHORNDIS_HOME="\$PREFIX" "\$PYBIN" "\$PREFIX/src/app.py" ;;
+  app)       exec env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" REHORNDIS_HOME="\$PREFIX" "\$PYBIN" "\$PREFIX/src/app.py" ;;
   run)       shift
-             case " \$* " in *" --help "*|*" -h "*) exec env DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" "\$PYBIN" "\$PREFIX/src/main.py" "\$@" ;; esac
-             exec sudo env DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" "\$PYBIN" "\$PREFIX/src/main.py" "\$@" ;;
-  "")        nohup env DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" REHORNDIS_HOME="\$PREFIX" "\$PYBIN" "\$PREFIX/src/app.py" >>"\$PREFIX/app.log" 2>&1 &
+             case " \$* " in *" --help "*|*" -h "*) exec env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" "\$PYBIN" "\$PREFIX/src/main.py" "\$@" ;; esac
+             exec sudo env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" "\$PYBIN" "\$PREFIX/src/main.py" "\$@" ;;
+  "")        nohup env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH="\$LIBS" REHORNDIS_HOME="\$PREFIX" "\$PYBIN" "\$PREFIX/src/app.py" >>"\$PREFIX/app.log" 2>&1 &
              echo "ReHoRNDIS is in the menu bar. (rehorndis --help for more)"; exit 0 ;;
   *)         usage >&2; exit 2 ;;
 esac

@@ -59,7 +59,7 @@ def enable_login():
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},  # restart after a crash, not after Quit
         "ProcessType": "Interactive",
-        "EnvironmentVariables": {"DYLD_FALLBACK_LIBRARY_PATH": LIBS, "REHORNDIS_HOME": str(HOME_DIR)},
+        "EnvironmentVariables": {"PYTHONDONTWRITEBYTECODE": "1", "DYLD_FALLBACK_LIBRARY_PATH": LIBS, "REHORNDIS_HOME": str(HOME_DIR)},
         "StandardOutPath": str(HOME_DIR / "app.log"),
         "StandardErrorPath": str(HOME_DIR / "app.log"),
     }))
@@ -159,7 +159,7 @@ class App(rumps.App):
 
     # ---- actions ----
     def start_worker(self):
-        cmd = (f"env DYLD_FALLBACK_LIBRARY_PATH={LIBS} {shlex.quote(sys.executable)} "
+        cmd = (f"env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH={LIBS} {shlex.quote(sys.executable)} "
                f"{shlex.quote(str(HERE / 'main.py'))} --worker --control-uid {self.uid} >> {LOG} 2>&1 &")
         script = (f'do shell script "{applescript_quote(cmd)}" with administrator privileges '
                   'with prompt "ReHoRNDIS needs administrator access to create the USB network interface."')
@@ -169,7 +169,7 @@ class App(rumps.App):
                                       stderr=subprocess.PIPE, text=True)
 
     def on_troubleshoot(self, _):
-        cmd = (f"env DYLD_FALLBACK_LIBRARY_PATH={LIBS} {shlex.quote(sys.executable)} "
+        cmd = (f"env PYTHONDONTWRITEBYTECODE=1 DYLD_FALLBACK_LIBRARY_PATH={LIBS} {shlex.quote(sys.executable)} "
                f"{shlex.quote(str(HERE / 'main.py'))} --repair 2>&1")
         script = (f'do shell script "{applescript_quote(cmd)}" with administrator privileges '
                   'with prompt "ReHoRNDIS needs administrator access to clean up leftover network settings."')
