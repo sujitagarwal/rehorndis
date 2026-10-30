@@ -92,6 +92,22 @@ What it changes on your system while connected:
 Using another phone? Please [open a device report](../../issues/new?template=device-report.yml)
 whether it works or not, so this table can grow.
 
+## Alternatives
+
+Other ways to get Android USB tethering on a modern Mac. Check each project's own page for current
+status and requirements.
+
+- [TetherKitNext](https://github.com/AA-EION/TetherKitNext): a signed, notarized app (DMG
+  install, menu bar, command-line tool), no kernel extension. A good choice if you want a
+  ready-made app. Based on [TetherKit](https://github.com/XiaoMiku01/TetherKit) by XiaoMiku01.
+- [prostec-labs/TetherKit](https://github.com/prostec-labs/TetherKit): a DriverKit port of
+  HoRNDIS. Check its README for release status.
+- [iKeramat/HoRNDIS](https://github.com/iKeramat/HoRNDIS): a fork of the original kernel extension.
+  Needs relaxed security settings (Recovery Mode steps) to load.
+
+What ReHoRNDIS offers instead: a small, readable, MIT-licensed Python implementation you can audit
+and modify, installed from a script rather than a signed app.
+
 ## Troubleshooting
 
 - **"No phone"**: check the cable (it must carry data), that USB tethering is on, and the phone is
