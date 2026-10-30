@@ -39,7 +39,7 @@ SRC="$PREFIX/src"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 mkdir -p "$PREFIX"
 rm -rf "$SRC.new"; mkdir -p "$SRC.new"
-if [ -n "$HERE" ] && [ -f "$HERE/main.py" ] && [ -f "$HERE/rndis.py" ]; then
+if [ -n "$HERE" ] && [ "$HERE" != "$SRC" ] && [ -f "$HERE/main.py" ] && [ -f "$HERE/rndis.py" ]; then
   say "Installing from local checkout $HERE"
   cp "$HERE"/*.py "$HERE/requirements.txt" "$HERE/uninstall.sh" "$HERE/install.sh" "$SRC.new/"
 else
