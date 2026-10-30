@@ -75,13 +75,13 @@ What it changes on your system while connected:
 ## Limitations
 
 - IPv4 only. IPv6 traffic is not carried.
-- One phone at a time.
-- Throughput is limited by a Python implementation (one USB transfer per outgoing packet) and by
-  USB 2.0, so expect less than the phone's own speed test.
-- Tested on a Samsung phone (04e8:6863) on macOS 26 with Apple Silicon. Other Android phones that
+- One phone connected at a time.
+- Throughput may be lower than a native driver, because packets are processed in Python. Speed has
+  not been measured yet.
+- Asks for admin approval each time you turn it on, because creating a network interface and
+  changing routes needs root.
+- So far tested only with one Samsung phone on macOS 26 (Apple Silicon). Other Android phones that
   use standard RNDIS (interface class E0/01/03) should work but are untested.
-- Needs admin approval to start, because creating a network interface and changing routes needs
-  root.
 
 ## Tested devices
 
