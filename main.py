@@ -140,9 +140,12 @@ def tunnel(args, stop, ctl=None, ready_flag=None):
         if ctl:
             ctl.update(**kw)
 
-    link = usbio.UsbLink(args.vid, args.pid).open()
+    link = usbio.UsbLink(args.vid, args.pid, args.bus, args.address).open()
     rn = rndis.Rndis(link)
     rn.stop = stop
+    d = link.dev
+    status(phone=dict(bus=d.bus, address=d.address, vid=d.idVendor, pid=d.idProduct,
+                      name=usbio._names.get((d.bus, d.address, d.idVendor, d.idProduct)) or str(d.product)))
     tn = net = None
     try:
         if args.stage <= 1:
@@ -258,6 +261,8 @@ def main():
     ap.add_argument("--dump-packets", action="store_true")
     ap.add_argument("--vid", type=lambda s: int(s, 16), default=None, help="hex; default: auto-detect RNDIS")
     ap.add_argument("--pid", type=lambda s: int(s, 16), default=None)
+    ap.add_argument("--bus", type=int, default=None, help="USB bus of the phone to use (with --address)")
+    ap.add_argument("--address", type=int, default=None, help="USB address of the phone to use")
     ap.add_argument("--stage", type=int, default=99,
                     help="stop after step: 1=claim 2=init+MAC 3=raw frames 4=DHCP (default: run all)")
     ap.add_argument("--repair", action="store_true", help="clean up leftovers of a previous run, then exit")

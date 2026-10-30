@@ -61,8 +61,10 @@ def is_rndis(dev):
     return False
 
 
-def find_rndis_device(vid=None, pid=None):
-    """First RNDIS device, or the one matching an explicit vid/pid."""
+def find_rndis_device(vid=None, pid=None, bus=None, address=None):
+    """The device at bus/address, else the one matching vid/pid, else the first RNDIS device."""
+    if bus is not None and address is not None:
+        return usb.core.find(bus=bus, address=address)
     if vid is not None and pid is not None:
         return usb.core.find(idVendor=vid, idProduct=pid)
     for dev in usb.core.find(find_all=True) or []:
@@ -71,18 +73,37 @@ def find_rndis_device(vid=None, pid=None):
     return None
 
 
+_names = {}  # (bus, address, vid, pid) -> product name; reading it needs a brief open()
+
+
+def list_rndis_devices():
+    """All attached RNDIS phones: [{bus, address, vid, pid, name}], stable order."""
+    out = []
+    for dev in usb.core.find(find_all=True) or []:
+        if not is_rndis(dev):
+            continue
+        key = (dev.bus, dev.address, dev.idVendor, dev.idProduct)
+        if key not in _names:
+            try:
+                _names[key] = dev.product or f"{dev.idVendor:04x}:{dev.idProduct:04x}"
+            except (usb.core.USBError, ValueError, NotImplementedError):
+                _names[key] = f"USB device {dev.idVendor:04x}:{dev.idProduct:04x}"
+        out.append(dict(bus=dev.bus, address=dev.address, vid=dev.idVendor, pid=dev.idProduct, name=_names[key]))
+    return sorted(out, key=lambda d: (d["bus"], d["address"]))
+
+
 class UsbLink:
     """Claims the RNDIS control+data interfaces and exposes raw transfers."""
 
-    def __init__(self, vid=None, pid=None):
-        self.vid, self.pid = vid, pid
+    def __init__(self, vid=None, pid=None, bus=None, address=None):
+        self.vid, self.pid, self.bus, self.address = vid, pid, bus, address
         self.dev = None
         self.ctrl_if = self.data_if = None
         self.intr_in = self.bulk_in = self.bulk_out = None
         self._claimed = []
 
     def open(self):
-        self.dev = find_rndis_device(self.vid, self.pid)
+        self.dev = find_rndis_device(self.vid, self.pid, self.bus, self.address)
         if self.dev is None:
             sys.exit("no RNDIS device found (phone plugged in, USB tethering on?)")
         dump_descriptors(self.dev)
