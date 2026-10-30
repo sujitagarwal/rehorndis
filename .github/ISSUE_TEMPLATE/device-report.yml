@@ -1,0 +1,43 @@
+name: Device report
+description: Tell us whether ReHoRNDIS works with your phone
+title: "[Device] <phone model> - works / doesn't work"
+labels: ["device-report"]
+body:
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: "Samsung Galaxy S23, Android 14"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: Mac and macOS version
+      placeholder: "MacBook Air M2, macOS 26.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works
+        - Connects but no internet
+        - Phone not detected
+        - Error in the menu bar
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: ids
+    attributes:
+      label: USB vendor:product ID (optional)
+      description: "Find it with: ioreg -p IOUSB -l | grep -E 'idVendor|idProduct'"
+      placeholder: "04e8:6863"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (if it failed)
+      description: "Output of `rehorndis run -v` in a terminal, or `tail -50 /var/log/rehorndis.log`."
+      render: shell

@@ -83,6 +83,15 @@ What it changes on your system while connected:
 - Needs admin approval to start, because creating a network interface and changing routes needs
   root.
 
+## Tested devices
+
+| Phone | macOS | Result |
+|---|---|---|
+| Samsung (04e8:6863, `SAMSUNG_Android`) | 26.6, Apple Silicon | Works |
+
+Using another phone? Please [open a device report](../../issues/new?template=device-report.yml)
+whether it works or not, so this table can grow.
+
 ## Troubleshooting
 
 - **"No phone"**: check the cable (it must carry data), that USB tethering is on, and the phone is
