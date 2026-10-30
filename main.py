@@ -3,7 +3,6 @@
 import argparse
 import logging
 import os
-import queue
 import select
 import signal
 import socket
@@ -60,37 +59,21 @@ class Bridge:
         return {"rx_bytes": self.rx_bytes, "tx_bytes": self.tx_bytes}
 
     def _send(self, frame):
-        self._send_many([frame])
-
-    def _send_many(self, frames):
-        for f in frames:
-            self.tx_bytes += len(f)
-            if self.args.dump_packets:
-                print("TX", describe(f), "|", hexdump(f))
-        self.rn.send_frames(frames)
+        self.tx_bytes += len(frame)
+        if self.args.dump_packets:
+            print("TX", describe(frame), "|", hexdump(frame))
+        self.rn.send_frame(frame)
 
     # ---- phone -> Mac ----
     def rx_loop(self):
-        """Two stages so USB reads overlap packet handling: this thread only reads, rx_process unwraps."""
-        q = queue.Queue(maxsize=256)
-        threading.Thread(target=self.rx_process, args=(q,), daemon=True).start()
         while not self.stop.is_set():
             try:
-                data = self.rn.read_raw(200)
+                frames = self.rn.recv_frames(200)
             except usb.core.USBError as e:
                 log.error("bulk read failed: %r", e)
                 self.stop.set()
                 return
-            if data:
-                q.put(data)
-
-    def rx_process(self, q):
-        while not self.stop.is_set():
-            try:
-                data = q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            for f in self.rn.unwrap(data):
+            for f in frames:
                 self.rx_bytes += len(f)
                 if self.args.dump_packets:
                     print("RX", describe(f), "|", hexdump(f))
@@ -134,20 +117,13 @@ class Bridge:
                 self._renew_after = time.monotonic() + 15
             if not select.select([self.tn], [], [], 1.0)[0]:
                 continue
-            frames = []
-            while len(frames) < self.rn.max_packets:  # drain what is queued, send as one transfer
-                try:
-                    pkt = self.tn.read()
-                except BlockingIOError:
-                    break
-                if not pkt or pkt[0] >> 4 != 4 or len(pkt) < 20:
-                    continue
-                mac = self._next_hop_mac(pkt[16:20])
-                if mac is None:
-                    continue  # ARP in flight; TCP/ICMP will retry
-                frames.append(mac + self.mac + b"\x08\x00" + pkt)
-            if frames:
-                self._send_many(frames)
+            pkt = self.tn.read()
+            if not pkt or pkt[0] >> 4 != 4 or len(pkt) < 20:
+                continue
+            mac = self._next_hop_mac(pkt[16:20])
+            if mac is None:
+                continue  # ARP in flight; TCP/ICMP will retry
+            self._send(mac + self.mac + b"\x08\x00" + pkt)
 
 
 def stage_log_frames(rn, seconds=20):
@@ -299,10 +275,6 @@ def main():
                         format="%(asctime)s %(name)s: %(message)s")
     if args.repair:
         return repair()
-
-    user = int(os.environ.get("SUDO_UID", os.getuid()))  # the app talks to the worker as the real user
-    if not args.worker and control.request(user, "status"):
-        sys.exit("ReHoRNDIS is already running (turn it off in the menu bar first).")
 
     stop = threading.Event()
     state = {"bridge": False}

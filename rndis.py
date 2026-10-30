@@ -151,42 +151,18 @@ class Rndis:
             pass
 
     # ---- data channel ----
-    @staticmethod
-    def _wrap(frame):
-        n = len(frame)
-        return struct.pack("<11I", MSG_PACKET, PACKET_HDR_LEN + n, PACKET_HDR_LEN - 8, n,
-                           0, 0, 0, 0, 0, 0, 0) + frame
-
     def send_frame(self, frame):
-        self.send_frames([frame])
-
-    def send_frames(self, frames):
-        """Send frames in as few bulk transfers as the device allows (packets/message and size caps)."""
-        batch, size = [], 0
-        for f in frames:
-            msg = self._wrap(f)
-            if batch and (len(batch) >= self.max_packets or size + len(msg) > self.max_transfer):
-                self._write(batch)
-                batch, size = [], 0
-            batch.append(msg)
-            size += len(msg)
-        if batch:
-            self._write(batch)
-
-    def _write(self, msgs):
-        data = b"".join(msgs)
+        n = len(frame)
+        msg = struct.pack("<11I", MSG_PACKET, PACKET_HDR_LEN + n, PACKET_HDR_LEN - 8, n,
+                          0, 0, 0, 0, 0, 0, 0) + frame
         with self._tx_lock:
-            self.usb.bulk_write(data)
-            if len(data) % self.usb.bulk_out.wMaxPacketSize == 0:
+            self.usb.bulk_write(msg)
+            if len(msg) % self.usb.bulk_out.wMaxPacketSize == 0:
                 self.usb.bulk_write(b"")  # zero-length packet terminates the transfer
-
-    def read_raw(self, timeout_ms=200):
-        """One bulk read of raw RNDIS data (may hold several packet messages), or None on timeout."""
-        return self.usb.bulk_read(max(self.max_transfer, 16384), timeout_ms)
 
     def recv_frames(self, timeout_ms=200):
         """One bulk read -> list of Ethernet frames (a transfer can carry several packet msgs)."""
-        data = self.read_raw(timeout_ms)
+        data = self.usb.bulk_read(max(self.max_transfer, 16384), timeout_ms)
         return self.unwrap(data) if data else []
 
     @staticmethod

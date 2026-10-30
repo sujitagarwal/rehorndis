@@ -18,12 +18,6 @@ class Utun:
         info = fcntl.ioctl(s, CTLIOCGINFO, struct.pack("I96s", 0, b"com.apple.net.utun_control"))
         ctl_id = struct.unpack("I96s", info)[0]
         s.connect((ctl_id, 0))  # unit 0 = kernel picks utunN
-        for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):  # absorb bursts instead of dropping packets
-            try:
-                s.setsockopt(socket.SOL_SOCKET, opt, 1 << 20)
-            except OSError:
-                pass
-        s.setblocking(False)  # callers select() first, then drain
         self.sock = s
         self.name = s.getsockopt(SYSPROTO_CONTROL, UTUN_OPT_IFNAME, 128).split(b"\0")[0].decode()
 

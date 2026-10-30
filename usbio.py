@@ -1,5 +1,4 @@
 """USB layer: find the phone, dump descriptors, claim RNDIS interfaces, bulk/control I/O."""
-import errno
 import logging
 import sys
 
@@ -89,8 +88,6 @@ def list_rndis_devices():
                 _names[key] = dev.product or f"{dev.idVendor:04x}:{dev.idProduct:04x}"
             except (usb.core.USBError, ValueError, NotImplementedError):
                 _names[key] = f"USB device {dev.idVendor:04x}:{dev.idProduct:04x}"
-            finally:
-                usb.util.dispose_resources(dev)  # don't keep the phone open between polls
         out.append(dict(bus=dev.bus, address=dev.address, vid=dev.idVendor, pid=dev.idProduct, name=_names[key]))
     return sorted(out, key=lambda d: (d["bus"], d["address"]))
 
@@ -156,11 +153,6 @@ class UsbLink:
             try:
                 usb.util.claim_interface(self.dev, n)
             except usb.core.USBError as e:
-                if e.errno == errno.EACCES:
-                    # Another process holds the phone (often ReHoRNDIS itself). Resetting would
-                    # disrupt it, so report instead of retrying.
-                    sys.exit(f"claim_interface({n}) failed: {e!r} (errno={e.errno}). Another program "
-                             "has the phone open; turn ReHoRNDIS off or close it and try again.")
                 print(f"claim_interface({n}) failed: {e!r} (errno={e.errno}); resetting device and retrying")
                 try:
                     self.dev.reset()
